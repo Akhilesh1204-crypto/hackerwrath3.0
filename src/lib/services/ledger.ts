@@ -25,6 +25,14 @@ export interface SettleStayParams {
   amount: number;
 }
 
+export interface CancellationFeeParams {
+  guestId: string;
+  hostId: string;
+  bookingId: string;
+  reservedAmount: number;
+  feeNights: number;
+}
+
 export class LedgerService {
   /**
    * Holds credits in reserve for a booking request.
@@ -127,6 +135,14 @@ export class LedgerService {
   }: ReleaseReservationParams) {
     const supabase = getAdminClient();
 
+    const releaseKey = `reservation-release:${bookingId}`;
+    const { data: existingRelease } = await supabase
+      .from('credit_transactions')
+      .select('*')
+      .eq('idempotency_key', releaseKey)
+      .maybeSingle();
+    if (existingRelease) return { success: true, transaction: existingRelease, idempotent: true };
+
     const { data: account, error: accError } = await supabase
       .from('credit_accounts')
       .select('available_balance, reserved_balance')
@@ -158,6 +174,7 @@ export class LedgerService {
         transaction_type: 'reservation_release',
         amount: releaseAmount,
         status: 'posted',
+        idempotency_key: releaseKey,
         description,
       })
       .select()
@@ -171,6 +188,14 @@ export class LedgerService {
    */
   static async settleStay({ guestId, hostId, bookingId, amount }: SettleStayParams) {
     const supabase = getAdminClient();
+
+    const { data: existingSettlement } = await supabase
+      .from('credit_transactions')
+      .select('id')
+      .eq('booking_id', bookingId)
+      .eq('transaction_type', 'stay_debit')
+      .maybeSingle();
+    if (existingSettlement) return { success: true, idempotent: true };
 
     // 1. Debit guest reserved balance
     const { data: guestAccount } = await supabase
@@ -192,6 +217,7 @@ export class LedgerService {
         transaction_type: 'stay_debit',
         amount: -amount,
         status: 'posted',
+        idempotency_key: `settlement-debit:${bookingId}`,
         description: `Settlement debit for completed stay #${bookingId}`,
       });
     }
@@ -216,10 +242,85 @@ export class LedgerService {
         transaction_type: 'host_reward',
         amount: amount,
         status: 'posted',
+        idempotency_key: `settlement-reward:${bookingId}`,
         description: `Reward for hosting stay #${bookingId}`,
       });
     }
 
     return { success: true };
+  }
+
+  /** Releases all held credits except the late-cancellation fee and pays that fee to the host. */
+  static async settleCancellationFee({
+    guestId,
+    hostId,
+    bookingId,
+    reservedAmount,
+    feeNights,
+  }: CancellationFeeParams) {
+    const fee = Math.max(0, Math.min(feeNights, reservedAmount));
+    const releaseAmount = Math.max(0, reservedAmount - fee);
+    if (releaseAmount > 0) {
+      await this.releaseReservation({
+        userId: guestId,
+        bookingId,
+        amount: releaseAmount,
+        description: `Release ${releaseAmount} credits after cancellation of booking #${bookingId}`,
+      });
+    }
+    if (fee === 0) return { success: true, feeNights: 0, released: releaseAmount };
+
+    const supabase = getAdminClient();
+    const { data: existingFee } = await supabase
+      .from('credit_transactions')
+      .select('id')
+      .eq('user_id', guestId)
+      .eq('booking_id', bookingId)
+      .eq('transaction_type', 'cancellation_fee')
+      .maybeSingle();
+    if (existingFee) return { success: true, idempotent: true, feeNights: fee, released: releaseAmount };
+
+    const { data: guestAccount } = await supabase
+      .from('credit_accounts')
+      .select('reserved_balance')
+      .eq('user_id', guestId)
+      .single();
+    if (!guestAccount || guestAccount.reserved_balance < fee) {
+      throw new Error('Reserved credit balance is insufficient for the cancellation fee');
+    }
+    await supabase
+      .from('credit_accounts')
+      .update({ reserved_balance: guestAccount.reserved_balance - fee, updated_at: new Date().toISOString() })
+      .eq('user_id', guestId);
+    await supabase.from('credit_transactions').insert({
+      user_id: guestId,
+      booking_id: bookingId,
+      transaction_type: 'cancellation_fee',
+      amount: -fee,
+      status: 'posted',
+      idempotency_key: `cancellation-fee:${bookingId}:guest`,
+      description: `Late cancellation fee for booking #${bookingId}`,
+    });
+
+    const { data: hostAccount } = await supabase
+      .from('credit_accounts')
+      .select('available_balance')
+      .eq('user_id', hostId)
+      .single();
+    if (!hostAccount) throw new Error(`Credit account not found for user: ${hostId}`);
+    await supabase
+      .from('credit_accounts')
+      .update({ available_balance: hostAccount.available_balance + fee, updated_at: new Date().toISOString() })
+      .eq('user_id', hostId);
+    await supabase.from('credit_transactions').insert({
+      user_id: hostId,
+      booking_id: bookingId,
+      transaction_type: 'compensation_adjustment',
+      amount: fee,
+      status: 'posted',
+      idempotency_key: `cancellation-fee:${bookingId}:host`,
+      description: `Late cancellation compensation for booking #${bookingId}`,
+    });
+    return { success: true, feeNights: fee, released: releaseAmount };
   }
 }

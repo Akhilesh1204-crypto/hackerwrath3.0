@@ -52,6 +52,18 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
       return notFound('Target user profile not found');
     }
 
+    await supabase
+      .from('verification_submissions')
+      .update({
+        status: decision,
+        notes: notes ?? null,
+        reviewed_by: admin.id,
+        reviewed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', targetUserId)
+      .eq('status', 'pending');
+
     // 2. Audit log entry
     await supabase.from('admin_audit_logs').insert({
       admin_id: admin.id,

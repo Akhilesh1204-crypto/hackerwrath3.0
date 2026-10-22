@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getAuthUser } from '@/lib/auth';
+import { getAuthUser, isVerifiedMember } from '@/lib/auth';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { createPropertySchema, CITY_STATE_MAP } from '@/lib/validations/property';
 import { ok, unauthorized, badRequest, internalError } from '@/lib/api-response';
@@ -10,6 +10,9 @@ export async function POST(req: NextRequest) {
   const user = await getAuthUser(req);
   if (!user) {
     return unauthorized('Authentication required to create a listing');
+  }
+  if (!(await isVerifiedMember(user.id))) {
+    return badRequest('FORBIDDEN', 'Verification is required before listing a home');
   }
 
   try {

@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server';
-import { getAuthUser } from '@/lib/auth';
+import { getAuthUser, isVerifiedMember } from '@/lib/auth';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { ok, unauthorized, forbidden, notFound, conflict, badRequest, internalError } from '@/lib/api-response';
-import { getNightDates } from '@/lib/services/dates';
+import { calculateNights } from '@/lib/services/dates';
+import { LedgerService } from '@/lib/services/ledger';
 
 interface RouteContext {
   params: { id: string };
@@ -44,6 +45,16 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
   }
 
   const now = new Date().toISOString();
+  const requesterNights = calculateNights(swap.requester_check_in, swap.requester_check_out);
+  const recipientNights = calculateNights(swap.recipient_check_in, swap.recipient_check_out);
+  const creditDifference = Math.abs(requesterNights - recipientNights);
+  const creditPayerId = requesterNights > recipientNights ? swap.requester_id : swap.recipient_id;
+  if (creditDifference > 0 && swap.credit_terms_status !== 'pending' && swap.credit_terms_status !== 'accepted') {
+    return badRequest('MUTUAL_CONSENT_REQUIRED', 'The unequal-swap credit terms are not available for acceptance');
+  }
+  if (!(await isVerifiedMember(user.id))) {
+    return forbidden('Verification is required before accepting a direct swap');
+  }
 
   // 2. Validate availability and no conflicting confirmed bookings for both legs
   // Leg 1: Requester staying at Recipient's property
@@ -82,11 +93,14 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
       check_in: swap.requester_check_in,
       check_out: swap.requester_check_out,
     },
-    recipient_stay: {
+      recipient_stay: {
       property_id: swap.requester_property_id,
       check_in: swap.recipient_check_in,
       check_out: swap.recipient_check_out,
-    },
+      },
+      credit_difference: creditDifference,
+      credit_payer_id: creditDifference > 0 ? creditPayerId : null,
+      credit_recipient_id: creditDifference > 0 ? (creditPayerId === swap.requester_id ? swap.recipient_id : swap.requester_id) : null,
     version: '1.0',
     confirmed_at: now,
   };
@@ -116,7 +130,7 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
       check_out: swap.requester_check_out,
       booking_status: 'confirmed',
       booking_type: 'direct_swap',
-      credit_price: 0,
+       credit_price: creditDifference > 0 && requesterNights > recipientNights ? creditDifference : 0,
       swap_request_id: swap.id,
     })
     .select()
@@ -137,7 +151,7 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
       check_out: swap.recipient_check_out,
       booking_status: 'confirmed',
       booking_type: 'direct_swap',
-      credit_price: 0,
+       credit_price: creditDifference > 0 && recipientNights > requesterNights ? creditDifference : 0,
       swap_request_id: swap.id,
     })
     .select()
@@ -149,12 +163,29 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
     return conflict('OVERLAPPING_BOOKING', 'Date conflict preventing confirmation of Leg 2', b2Error.message);
   }
 
+  if (creditDifference > 0) {
+    const payerBooking = requesterNights > recipientNights ? bookingLeg1 : bookingLeg2;
+    const reserveResult = await LedgerService.reserveCredits({
+      userId: creditPayerId,
+      bookingId: payerBooking.id,
+      amount: creditDifference,
+      idempotencyKey: `swap-reservation:${swap.id}`,
+      description: `Reserve ${creditDifference} credit${creditDifference === 1 ? '' : 's'} for unequal swap #${swap.id}`,
+    });
+    if (!reserveResult.success) {
+      await supabase.from('bookings').delete().in('id', [bookingLeg1.id, bookingLeg2.id]);
+      await supabase.from('swap_agreements').delete().eq('swap_request_id', swap.id);
+      return badRequest('INSUFFICIENT_CREDITS', 'The longer-stay member no longer has enough credits to confirm this swap', reserveResult);
+    }
+  }
+
   // 4. Update swap request status
   const { data: updatedSwap } = await supabase
     .from('swap_requests')
     .update({
       request_status: 'confirmed',
       recipient_accepted_at: now,
+      credit_terms_status: creditDifference > 0 ? 'accepted' : 'equal',
       updated_at: now,
     })
     .eq('id', swap.id)

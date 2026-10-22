@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
-import { getAuthUser } from '@/lib/auth';
+import { getAuthUser, isVerifiedMember } from '@/lib/auth';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { createSwapRequestSchema } from '@/lib/validations/swap';
+import { calculateNights } from '@/lib/services/dates';
 import { ok, unauthorized, badRequest, notFound, conflict, internalError } from '@/lib/api-response';
 
 // POST /api/swaps - Create swap request
@@ -9,6 +10,9 @@ export async function POST(req: NextRequest) {
   const user = await getAuthUser(req);
   if (!user) {
     return unauthorized('Authentication required to propose a swap');
+  }
+  if (!(await isVerifiedMember(user.id))) {
+    return badRequest('FORBIDDEN', 'Verification is required before proposing a direct swap');
   }
 
   try {
@@ -56,6 +60,28 @@ export async function POST(req: NextRequest) {
       return badRequest('VALIDATION_ERROR', 'Target property is not currently active');
     }
 
+    const requesterNights = calculateNights(data.requester_check_in, data.requester_check_out);
+    const recipientNights = calculateNights(data.recipient_check_in, data.recipient_check_out);
+    const creditDifference = Math.abs(requesterNights - recipientNights);
+    const creditPayerId = requesterNights > recipientNights ? user.id : recipientProp.owner_id;
+    const creditRecipientId = requesterNights > recipientNights ? recipientProp.owner_id : user.id;
+    const creditTermsStatus = creditDifference > 0 ? 'pending' : 'equal';
+
+    if (creditDifference > 0) {
+      const { data: payerAccount } = await supabase
+        .from('credit_accounts')
+        .select('available_balance')
+        .eq('user_id', creditPayerId)
+        .single();
+      if (!payerAccount || payerAccount.available_balance < creditDifference) {
+        return badRequest(
+          'INSUFFICIENT_CREDITS',
+          `Unequal swaps require ${creditDifference} available credit${creditDifference === 1 ? '' : 's'} from the longer-stay member. Start with an equal-night swap or earn credits by hosting first.`,
+          { required: creditDifference, available: payerAccount?.available_balance ?? 0 },
+        );
+      }
+    }
+
     // 3. Create swap request with requester accepted at creation
     const now = new Date().toISOString();
     const { data: swapRequest, error: insertError } = await supabase
@@ -71,6 +97,10 @@ export async function POST(req: NextRequest) {
         recipient_check_out: data.recipient_check_out,
         request_status: 'pending',
         requester_accepted_at: now,
+        credit_difference: creditDifference,
+        credit_payer_id: creditDifference > 0 ? creditPayerId : null,
+        credit_recipient_id: creditDifference > 0 ? creditRecipientId : null,
+        credit_terms_status: creditTermsStatus,
       })
       .select()
       .single();

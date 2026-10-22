@@ -42,15 +42,25 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
   try {
     const json = await req.json().catch(() => ({}));
     const parsed = cancelBookingSchema.safeParse(json);
-    const cancelReason = parsed.success ? parsed.data.reason : 'Cancelled by user';
+    if (!parsed.success) {
+      return badRequest('VALIDATION_ERROR', 'A cancellation reason of at least 5 characters is required', parsed.error.format());
+    }
+    const cancelReason = parsed.data.reason;
 
     // If credit stay, release the held credits back to the guest
+    let cancellationFeeNights = 0;
     if (booking.booking_type === 'credit_stay' && booking.credit_price > 0) {
-      await LedgerService.releaseReservation({
-        userId: booking.guest_id,
+      const reservationAmount = booking.credit_reservation_amount || booking.credit_price;
+      const daysUntilCheckIn = Math.floor(
+        (new Date(`${booking.check_in}T00:00:00Z`).getTime() - Date.now()) / 86_400_000,
+      );
+      cancellationFeeNights = daysUntilCheckIn >= 7 ? 0 : Math.min(1, reservationAmount);
+      await LedgerService.settleCancellationFee({
+        guestId: booking.guest_id,
+        hostId: booking.host_id,
         bookingId: booking.id,
-        amount: booking.credit_price,
-        description: `Release credits for cancelled booking #${booking.id}: ${cancelReason}`,
+        reservedAmount: reservationAmount,
+        feeNights: cancellationFeeNights,
       });
     }
 
@@ -59,6 +69,8 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
       .from('bookings')
       .update({
         booking_status: 'cancelled',
+        cancellation_fee_nights: cancellationFeeNights,
+        credits_released_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
       .eq('id', bookingId)

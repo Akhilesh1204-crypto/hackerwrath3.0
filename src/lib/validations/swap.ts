@@ -32,5 +32,14 @@ export const respondSwapRequestSchema = z.object({
   reason: z.string().optional(),
 });
 
+export const creditTermsActionSchema = z.object({
+  action: z.enum(['accept', 'counter', 'decline', 'return_stay']),
+  note: z.string().trim().max(500).optional(),
+}).superRefine((value, context) => {
+  if ((value.action === 'counter' || value.action === 'return_stay') && !value.note) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['note'], message: 'Please explain the alternative terms.' });
+  }
+});
+
 export type CreateSwapRequestInput = z.infer<typeof createSwapRequestSchema>;
 export type RespondSwapRequestInput = z.infer<typeof respondSwapRequestSchema>;

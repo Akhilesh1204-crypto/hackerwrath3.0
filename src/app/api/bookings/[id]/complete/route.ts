@@ -38,6 +38,10 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
     return badRequest('INVALID_STATE_TRANSITION', `Cannot complete a booking with status: ${booking.booking_status}`);
   }
 
+  if (booking.check_out > new Date().toISOString().slice(0, 10)) {
+    return badRequest('INVALID_STATE_TRANSITION', 'A stay can only be completed after check-out');
+  }
+
   // 1. Settle credits if it's a credit stay
   if (booking.booking_type === 'credit_stay' && booking.credit_price > 0) {
     try {
@@ -57,6 +61,7 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
     .from('bookings')
     .update({
       booking_status: 'completed',
+      credits_settled_at: booking.booking_type === 'credit_stay' ? new Date().toISOString() : null,
       updated_at: new Date().toISOString(),
     })
     .eq('id', bookingId)

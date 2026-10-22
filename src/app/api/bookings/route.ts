@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getAuthUser } from '@/lib/auth';
+import { getAuthUser, isVerifiedMember } from '@/lib/auth';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { createBookingRequestSchema } from '@/lib/validations/booking';
 import { calculateNights } from '@/lib/services/dates';
@@ -11,6 +11,9 @@ export async function POST(req: NextRequest) {
   const user = await getAuthUser(req);
   if (!user) {
     return unauthorized('Authentication required to request a booking');
+  }
+  if (!(await isVerifiedMember(user.id))) {
+    return badRequest('FORBIDDEN', 'Verification is required before requesting a credit stay');
   }
 
   try {
@@ -90,6 +93,7 @@ export async function POST(req: NextRequest) {
         booking_status: 'requested',
         booking_type: 'credit_stay',
         credit_price: creditCost,
+        credit_reservation_amount: creditCost,
       })
       .select()
       .single();

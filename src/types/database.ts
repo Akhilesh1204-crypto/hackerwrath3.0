@@ -11,7 +11,9 @@ export type CreditTxType =
   | 'reservation_release'
   | 'stay_debit'
   | 'host_reward'
-  | 'compensation_adjustment';
+  | 'compensation_adjustment'
+  | 'swap_difference'
+  | 'cancellation_fee';
 export type TxStatus = 'pending' | 'posted' | 'voided';
 export type ModerationStatus = 'pending' | 'approved' | 'rejected';
 export type ReportStatus = 'open' | 'under_review' | 'resolved' | 'dismissed';
@@ -97,6 +99,11 @@ export interface SwapRequest {
   recipient_accepted_at: string | null;
   created_at: string;
   updated_at: string;
+  credit_difference: number;
+  credit_payer_id: string | null;
+  credit_recipient_id: string | null;
+  credit_terms_note: string | null;
+  credit_terms_status: 'equal' | 'pending' | 'accepted' | 'countered' | 'declined' | 'return_stay';
 }
 
 export interface SwapAgreement {
@@ -123,6 +130,10 @@ export interface Booking {
   swap_request_id: string | null;
   created_at: string;
   updated_at: string;
+  credit_reservation_amount: number;
+  cancellation_fee_nights: number;
+  credits_settled_at: string | null;
+  credits_released_at: string | null;
 }
 
 export interface CreditAccount {
