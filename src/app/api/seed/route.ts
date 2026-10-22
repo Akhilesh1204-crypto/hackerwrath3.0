@@ -2,14 +2,13 @@ import { NextRequest } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { ok, internalError } from '@/lib/api-response';
 
-// POST /api/seed - Helper to populate demo launch properties and scores using valid auth users
+// POST /api/seed - Helper to populate demo launch properties, swaps, stays, wallets, and reports
 export async function POST(req: NextRequest) {
   const supabase = getAdminClient();
 
   try {
     // 1. Create or retrieve auth users
     const getOrCreateUser = async (email: string, displayName: string) => {
-      // Check if user already exists
       const { data: { users } } = await supabase.auth.admin.listUsers();
       const existing = users.find((u) => u.email === email);
       if (existing) {
@@ -50,9 +49,9 @@ export async function POST(req: NextRequest) {
       role: 'admin',
     }).eq('id', u3);
 
-    await supabase.from('credit_accounts').update({ available_balance: 5 }).eq('user_id', u1);
-    await supabase.from('credit_accounts').update({ available_balance: 4 }).eq('user_id', u2);
-    await supabase.from('credit_accounts').update({ available_balance: 10 }).eq('user_id', u3);
+    await supabase.from('credit_accounts').update({ available_balance: 5, reserved_balance: 0 }).eq('user_id', u1);
+    await supabase.from('credit_accounts').update({ available_balance: 4, reserved_balance: 2 }).eq('user_id', u2);
+    await supabase.from('credit_accounts').update({ available_balance: 10, reserved_balance: 0 }).eq('user_id', u3);
 
     // 3. Properties in Mumbai, Bengaluru, Gurugram
     const sampleProperties = [
@@ -103,10 +102,9 @@ export async function POST(req: NextRequest) {
       },
     ];
 
-    const insertedProperties = [];
+    const insertedProperties: string[] = [];
 
     for (const prop of sampleProperties) {
-      // Check if property with same title already exists
       const { data: existing } = await supabase
         .from('properties')
         .select('id')
@@ -195,7 +193,6 @@ export async function POST(req: NextRequest) {
     ];
 
     for (const photo of photos) {
-      // Check if photo exists
       const { data: existingPhoto } = await supabase
         .from('property_photos')
         .select('id')
@@ -207,11 +204,152 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 6. POPULATE A DEMO PENDING DIRECT SWAP
+    // Aarav (Mumbai) proposed swap to Priya (Bengaluru)
+    const { data: existingSwap } = await supabase
+      .from('swap_requests')
+      .select('id')
+      .eq('requester_id', u1)
+      .eq('recipient_id', u2)
+      .maybeSingle();
+
+    if (!existingSwap) {
+      await supabase.from('swap_requests').insert({
+        requester_id: u1,
+        recipient_id: u2,
+        requester_property_id: insertedProperties[0],
+        recipient_property_id: insertedProperties[1],
+        requester_check_in: '2026-11-10',
+        requester_check_out: '2026-11-15',
+        recipient_check_in: '2026-11-10',
+        recipient_check_out: '2026-11-15',
+        request_status: 'pending',
+        requester_accepted_at: new Date().toISOString(),
+      });
+    }
+
+    // 7. POPULATE DEMO CREDIT BOOKINGS
+    // A) Priya requested a stay at Rohan's Gurugram home (status: requested -> Rohan can confirm)
+    const { data: existingBooking1 } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('guest_id', u2)
+      .eq('host_id', u3)
+      .maybeSingle();
+
+    if (!existingBooking1) {
+      await supabase.from('bookings').insert({
+        property_id: insertedProperties[2],
+        guest_id: u2,
+        host_id: u3,
+        check_in: '2026-12-01',
+        check_out: '2026-12-03',
+        booking_status: 'requested',
+        booking_type: 'credit_stay',
+        credit_price: 2,
+      });
+    }
+
+    // B) Completed stay between Rohan and Aarav (status: completed -> eligible for reviews!)
+    const { data: existingBooking2 } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('guest_id', u3)
+      .eq('host_id', u1)
+      .maybeSingle();
+
+    if (!existingBooking2) {
+      await supabase.from('bookings').insert({
+        property_id: insertedProperties[0],
+        guest_id: u3,
+        host_id: u1,
+        check_in: '2026-10-01',
+        check_out: '2026-10-03',
+        booking_status: 'completed',
+        booking_type: 'credit_stay',
+        credit_price: 2,
+      });
+    }
+
+    // 8. POPULATE DEMO WALLET TRANSACTIONS
+    const transactions = [
+      {
+        user_id: u1,
+        transaction_type: 'initial_grant',
+        amount: 5,
+        status: 'posted',
+        description: 'Pilot starter credit allocation for launch market host',
+      },
+      {
+        user_id: u1,
+        transaction_type: 'host_reward',
+        amount: 2,
+        status: 'posted',
+        description: 'Host reward for completed 2-night stay at Bandra Apartment',
+      },
+      {
+        user_id: u2,
+        transaction_type: 'initial_grant',
+        amount: 6,
+        status: 'posted',
+        description: 'Pilot starter credit allocation',
+      },
+      {
+        user_id: u2,
+        transaction_type: 'reservation_hold',
+        amount: -2,
+        status: 'posted',
+        description: 'Hold 2 credits for pending stay request at Gurugram High-Rise',
+      },
+      {
+        user_id: u3,
+        transaction_type: 'initial_grant',
+        amount: 10,
+        status: 'posted',
+        description: 'Admin testing starter grant',
+      },
+    ];
+
+    for (const tx of transactions) {
+      const { data: existingTx } = await supabase
+        .from('credit_transactions')
+        .select('id')
+        .eq('user_id', tx.user_id)
+        .eq('description', tx.description)
+        .maybeSingle();
+
+      if (!existingTx) {
+        await supabase.from('credit_transactions').insert(tx);
+      }
+    }
+
+    // 9. POPULATE DEMO ADMIN SAFETY/INCIDENT REPORT
+    const { data: existingReport } = await supabase
+      .from('reports')
+      .select('id')
+      .eq('reporter_id', u2)
+      .maybeSingle();
+
+    if (!existingReport) {
+      await supabase.from('reports').insert({
+        reporter_id: u2,
+        target_type: 'property',
+        target_id: insertedProperties[0],
+        category: 'cleanliness',
+        description: 'Host was 15 minutes late for key handover during trial swap exchange.',
+        status: 'open',
+      });
+    }
+
     return ok({
-      message: 'Successfully seeded launch homes in Mumbai, Bengaluru, and Gurugram!',
-      seeded_properties_count: insertedProperties.length,
+      message: 'Successfully populated demo properties, pending swaps, active stays, wallet ledgers, and admin reports!',
+      demo_users: {
+        aarav: u1,
+        priya: u2,
+        rohan_admin: u3,
+      },
     });
   } catch (err: any) {
-    return internalError('Error seeding data', err?.message);
+    return internalError('Error seeding demo data', err?.message);
   }
 }

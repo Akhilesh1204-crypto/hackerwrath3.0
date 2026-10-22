@@ -42,21 +42,19 @@ export async function getAuthUser(req: NextRequest): Promise<AuthUser | null> {
     const supabase = await createClientServer();
     const { data: { user }, error } = await supabase.auth.getUser();
 
-    if (error || !user) {
-      return null;
+    if (user) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      return {
+        id: user.id,
+        email: user.email,
+        role: profile?.role || 'member',
+      };
     }
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .maybeSingle();
-
-    return {
-      id: user.id,
-      email: user.email,
-      role: profile?.role || 'member',
-    };
   } catch (err) {
     // continue to fallback
   }
