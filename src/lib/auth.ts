@@ -79,3 +79,13 @@ export async function getAuthUser(req: NextRequest): Promise<AuthUser | null> {
 
   return null;
 }
+
+export async function isVerifiedMember(userId: string): Promise<boolean> {
+  const supabaseAdmin = getAdminClient();
+  const { data: profile } = await supabaseAdmin
+    .from('profiles')
+    .select('verification_status, role')
+    .eq('id', userId)
+    .maybeSingle();
+  return profile?.role === 'admin' || profile?.verification_status === 'verified';
+}

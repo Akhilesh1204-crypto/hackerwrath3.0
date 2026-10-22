@@ -97,7 +97,8 @@ All backend endpoints return a standard envelope:
 |---|---|---|---|
 | `GET` | `/api/profile` | Get caller's profile and verification status | Yes |
 | `PATCH` | `/api/profile` | Update profile (`display_name`, `bio`, `phone`) | Yes |
-| `POST` | `/api/verification` | Submit identity/hosting authority documents for review | Yes |
+| `POST` | `/api/verification` | Store identity/hosting authority documents and create a pending review submission | Yes |
+| `GET` | `/api/admin/verification` | List pending verification submissions for the moderation queue | Yes (Admin) |
 | `POST` | `/api/admin/verification/:userId` | Admin approves or rejects verification | Yes (Admin) |
 
 ### Direct Swaps (Mutual Exchange)
@@ -107,6 +108,7 @@ All backend endpoints return a standard envelope:
 | `GET` | `/api/swaps` | List swaps where caller is requester or recipient | Yes |
 | `POST` | `/api/swaps/:id/accept` | Recipient accepts proposal $\rightarrow$ creates agreement snapshot and 2 confirmed bookings | Yes (Recipient) |
 | `POST` | `/api/swaps/:id/decline` | Either party declines/cancels proposal | Yes (Participant) |
+| `POST` | `/api/swaps/:id/credit-terms` | Credit recipient accepts, counters, declines, or requests a return stay for unequal terms | Yes (Credit recipient) |
 
 ### Credit-Based Stays
 | Method | Endpoint | Description | Auth Required |
@@ -116,6 +118,13 @@ All backend endpoints return a standard envelope:
 | `POST` | `/api/bookings/:id/confirm` | Host confirms requested booking $\rightarrow$ status becomes `confirmed` | Yes (Host) |
 | `POST` | `/api/bookings/:id/complete` | Mark stay as completed $\rightarrow$ releases credit reward to host | Yes (Host/Admin) |
 | `POST` | `/api/bookings/:id/cancel` | Cancel stay under policy $\rightarrow$ releases reserved credits back to guest | Yes (Participant) |
+
+Credit rules:
+- One credit equals one night; new members start with zero and earn credits after hosting completed stays.
+- Credits are held at confirmation/request time, never allowed below zero, and settled after checkout.
+- Cancellation at least 7 days before check-in releases all held credits. A later cancellation retains one night and pays it to the host as compensation.
+- Ledger entries are append-only and settlement/reservation keys are idempotent.
+- Equal-night direct swaps move zero credits. Unequal swaps require the longer-stay member to already have the difference available; the member earning the difference must opt in before confirmation.
 
 ### Wallet & Credit Ledger
 | Method | Endpoint | Description | Auth Required |
@@ -129,6 +138,16 @@ All backend endpoints return a standard envelope:
 | `POST` | `/api/reviews` | Submit review (`rating` 1-5, `comment`). Only allowed if `booking_status === 'completed'` | Yes (Participant) |
 | `POST` | `/api/reports` | File safety/cleanliness/fraud report | Yes |
 | `GET` | `/api/admin/reports` | Admin moderation dashboard for reports | Yes (Admin) |
+
+### Host–Guest Messaging
+| Method | Endpoint | Description | Auth Required |
+|---|---|---|---|
+| `GET` | `/api/conversations` | List conversations where the caller is a participant, including the latest message | Yes |
+| `POST` | `/api/conversations` | Start or reuse a conversation (`recipient_id`, optional `property_id`, `booking_id`, `swap_request_id`, `context`, and `initial_message`) | Yes |
+| `GET` | `/api/conversations/:id/messages` | Read messages and mark the caller's conversation membership as read | Yes (Participant) |
+| `POST` | `/api/conversations/:id/messages` | Send a message (`body`, 1–2,000 characters) | Yes (Participant) |
+
+Messaging authorization is participant-based. Property conversations require the recipient to own the property; booking and swap conversations require both users to be participants in the referenced record. Apply `supabase/migrations/00002_messaging.sql` before using these endpoints.
 
 ---
 
@@ -147,7 +166,7 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 ```
 
 ### Step 2: Apply Database Schema & Seeds
-Execute the SQL in `supabase/migrations/00001_initial_schema.sql` in your Supabase SQL Editor.  
+Execute the SQL in `supabase/migrations/00001_initial_schema.sql` through `00004_verification_submissions.sql` in your Supabase SQL Editor.  
 Execute `supabase/seed.sql` to populate sample properties in Mumbai, Bengaluru, and Gurugram.
 
 ### Step 3: Run Dev Server
