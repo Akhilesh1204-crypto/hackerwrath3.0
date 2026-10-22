@@ -58,6 +58,26 @@ export async function getAuthUser(req: NextRequest): Promise<AuthUser | null> {
       role: profile?.role || 'member',
     };
   } catch (err) {
-    return null;
+    // continue to fallback
   }
+
+  // 3. Development / Demo Switcher header support
+  const devUserId = req.headers.get('x-user-id');
+  if (devUserId) {
+    const supabaseAdmin = getAdminClient();
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('id, role')
+      .eq('id', devUserId)
+      .maybeSingle();
+
+    if (profile) {
+      return {
+        id: profile.id,
+        role: profile.role || 'member',
+      };
+    }
+  }
+
+  return null;
 }
