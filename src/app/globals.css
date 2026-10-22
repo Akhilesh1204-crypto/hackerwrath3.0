@@ -1,12 +1,110 @@
-:root {
-  --foreground-rgb: 15, 23, 42;
-  --background-rgb: 248, 250, 252;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --ring: 31 111 92;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-sand-50 text-ink-800 antialiased;
+    background-image:
+      radial-gradient(60rem 40rem at 110% -10%, rgba(31, 111, 92, 0.07), transparent 60%),
+      radial-gradient(50rem 35rem at -10% 5%, rgba(194, 112, 61, 0.06), transparent 55%);
+    background-attachment: fixed;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display font-normal text-ink-900;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  ::selection {
+    background: #cfe0d4;
+    color: #0b1f1b;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--ring));
+    outline-offset: 2px;
+  }
+
+  input[type='date']::-webkit-calendar-picker-indicator {
+    opacity: 0.5;
+    cursor: pointer;
+  }
 }
 
-body {
-  color: rgb(var(--foreground-rgb));
-  background: rgb(var(--background-rgb));
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  margin: 0;
-  padding: 0;
+@layer components {
+  .container-page {
+    @apply mx-auto w-full max-w-7xl px-5 sm:px-8 lg:px-10;
+  }
+
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.2em] text-moss;
+  }
+
+  .card {
+    @apply rounded-3xl border border-sand-200/80 bg-white/85 shadow-soft backdrop-blur-sm;
+  }
+
+  .field-label {
+    @apply mb-1.5 block text-[13px] font-medium text-ink-700;
+  }
+
+  .hint {
+    @apply text-xs leading-relaxed text-ink-500/80;
+  }
+
+  .link-underline {
+    @apply underline decoration-sand-300 decoration-1 underline-offset-4 transition hover:decoration-moss;
+  }
+
+  .divide-hairline {
+    @apply divide-y divide-sand-200/70;
+  }
+
+  .skeleton {
+    @apply relative overflow-hidden rounded-xl bg-sand-200/70;
+  }
+
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/60 to-transparent;
+  }
+
+  .prose-copy p {
+    @apply text-[15px] leading-7 text-ink-600;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .grain {
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E");
+  }
 }
