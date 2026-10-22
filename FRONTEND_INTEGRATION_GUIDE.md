@@ -86,8 +86,19 @@ All backend endpoints return a standard envelope:
 | `GET` | `/api/properties` | List all properties owned by the authenticated caller | Yes |
 | `GET` | `/api/properties/:id` | Fetch public property details & SwapScore breakdown (exact address hidden unless confirmed guest or owner) | Optional |
 | `PATCH` | `/api/properties/:id` | Update listing details (title, description, amenities, rules) | Yes (Owner) |
+| `POST` | `/api/properties/:id/photos` | Add photo storage path to property gallery | Yes (Owner) |
+| `GET` | `/api/properties/:id/photos` | Fetch all photos for property listing | No |
+| `DELETE` | `/api/properties/:id/photos/:photoId` | Remove a photo from property gallery | Yes (Owner) |
 | `GET` | `/api/properties/:id/availability` | Fetch availability calendar (`startDate`, `endDate`) | No |
 | `POST` | `/api/properties/:id/availability` | Host sets dates as `available` or `unavailable` | Yes (Owner) |
+
+### User Profile & Verification
+| Method | Endpoint | Description | Auth Required |
+|---|---|---|---|
+| `GET` | `/api/profile` | Get caller's profile and verification status | Yes |
+| `PATCH` | `/api/profile` | Update profile (`display_name`, `bio`, `phone`) | Yes |
+| `POST` | `/api/verification` | Submit identity/hosting authority documents for review | Yes |
+| `POST` | `/api/admin/verification/:userId` | Admin approves or rejects verification | Yes (Admin) |
 
 ### Direct Swaps (Mutual Exchange)
 | Method | Endpoint | Description | Auth Required |
@@ -103,6 +114,7 @@ All backend endpoints return a standard envelope:
 | `POST` | `/api/bookings` | Request stay. Validates balance, holds credits in reserve, creates booking with `requested` status | Yes |
 | `GET` | `/api/bookings` | List all bookings where caller is guest or host | Yes |
 | `POST` | `/api/bookings/:id/confirm` | Host confirms requested booking $\rightarrow$ status becomes `confirmed` | Yes (Host) |
+| `POST` | `/api/bookings/:id/complete` | Mark stay as completed $\rightarrow$ releases credit reward to host | Yes (Host/Admin) |
 | `POST` | `/api/bookings/:id/cancel` | Cancel stay under policy $\rightarrow$ releases reserved credits back to guest | Yes (Participant) |
 
 ### Wallet & Credit Ledger
