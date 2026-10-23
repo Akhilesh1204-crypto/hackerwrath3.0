@@ -10,7 +10,7 @@ copy .env.example .env.local
 npm run dev
 ```
 
-Open <http://localhost:3000>.
+Open <https://swapstay-frontend.vercel.app/>.
 
 Set `BACKEND_URL` to the backend URL and use the same Supabase project values as the backend:
 
