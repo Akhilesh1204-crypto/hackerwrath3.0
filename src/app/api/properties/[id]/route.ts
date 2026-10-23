@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { getAuthUser } from '@/lib/auth';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { updatePropertySchema } from '@/lib/validations/property';
+import { PROPERTY_VIDEO_BUCKET, createSignedStorageUrl } from '@/lib/services/storage';
 import { ok, unauthorized, forbidden, notFound, badRequest, internalError } from '@/lib/api-response';
 
 interface RouteContext {
@@ -54,10 +55,32 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
     }
   }
 
+  // Listing videos are private: approved clips for visitors, everything for the owner/admin.
+  const canManageMedia = Boolean(
+    user && (user.id === property.owner_id || user.role === 'admin'),
+  );
+  let mediaQuery = supabase
+    .from('property_media')
+    .select('*')
+    .eq('property_id', propertyId)
+    .order('display_order', { ascending: true });
+  if (!canManageMedia) mediaQuery = mediaQuery.eq('moderation_status', 'approved');
+  const { data: mediaRows } = await mediaQuery;
+
+  const videos = await Promise.all(
+    (mediaRows ?? [])
+      .filter((item: Record<string, any>) => item.media_type === 'video')
+      .map(async (item: Record<string, any>) => ({
+        ...item,
+        url: await createSignedStorageUrl(PROPERTY_VIDEO_BUCKET, item.storage_path, 60 * 60),
+      })),
+  );
+
   // Obfuscate exact address if not authorized
   const sanitizedProperty = {
     ...property,
     exact_address: canViewExactAddress ? property.exact_address : undefined,
+    videos,
   };
 
   return ok(sanitizedProperty);
