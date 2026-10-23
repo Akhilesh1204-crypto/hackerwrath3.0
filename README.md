@@ -12,16 +12,6 @@ npm run dev
 
 Open <https://swapstay-frontend.vercel.app/>.
 
-Set `BACKEND_URL` to the backend URL and use the same Supabase project values as the backend:
-
-```env
-BACKEND_URL=http://localhost:3001
-NEXT_PUBLIC_SUPABASE_URL=...
-NEXT_PUBLIC_SUPABASE_ANON_KEY=...
-```
-
-Optional Supabase Storage buckets are configured with `NEXT_PUBLIC_SUPABASE_PHOTO_BUCKET` and `NEXT_PUBLIC_SUPABASE_VERIFICATION_BUCKET`.
-
 ### Authentication and verification
 
 Supabase handles signup, email confirmation, login, sessions, token refresh, and password reset. The browser only uses the public URL and anon key; the backend uses `SUPABASE_SERVICE_ROLE_KEY` server-side to validate tokens and perform protected operations.
